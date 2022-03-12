@@ -632,8 +632,6 @@ static int wled5_cabc_config(struct wled *wled, bool enable)
 	if (wled->cabc_disabled)
 		return 0;
 
-	pr_info("%s: %sabling cabc", __func__, enable ? "en" : "dis");
-
 	reg = enable ? wled->cfg.cabc_sel : 0;
 	offset = wled5_src_sel_reg[wled->cfg.mod_sel];
 	rc = regmap_update_bits(wled->regmap, wled->sink_addr + offset,
