@@ -778,13 +778,15 @@ static int goodix_ts_input_report(struct input_dev *dev,
 		input_report_key(core_data->input_dev, BTN_INFO, 1);
 		/*input_report_key(core_data->input_dev, KEY_INFO, 1);*/
 		core_data->fod_pressed = true;
+		sysfs_notify(&core_data->gtp_touch_dev->kobj, NULL, "fp_state");
 		ts_info("BTN_INFO press");
 	} else if (core_data->fod_pressed && (core_data->event_status & 0x88) != 0x88) {
 		if (unlikely(!core_data->fod_test)) {
 			input_report_key(core_data->input_dev, BTN_INFO, 0);
 			/*input_report_key(core_data->input_dev, KEY_INFO, 0);*/
-			ts_info("BTN_INFO release");
 			core_data->fod_pressed = false;
+			sysfs_notify(&core_data->gtp_touch_dev->kobj, NULL, "fp_state");
+			ts_info("BTN_INFO release");
 		}
 	}
 	mutex_unlock(&ts_dev->report_mutex);
@@ -1228,6 +1230,19 @@ static DEVICE_ATTR(fod_test, (S_IRUGO | S_IWUSR | S_IWGRP),
 static DEVICE_ATTR(touch_suspend_notify, (S_IRUGO | S_IRGRP),
 			gtp_touch_suspend_notify_show, NULL);
 
+static ssize_t fp_state_show(struct device *dev,
+						struct device_attribute *attr, char *buf)
+{
+	struct goodix_ts_core *core_data = dev_get_drvdata(dev);
+	struct goodix_touch_data *touch_data =
+			&core_data->ts_event.event_data.touch_data;
+
+	return snprintf(buf, PAGE_SIZE, "%d,%d,%d\n",
+			touch_data->coords[0].x, touch_data->coords[0].y,
+			core_data->fod_pressed);
+}
+static DEVICE_ATTR_RO(fp_state);
+
 /**
  * goodix_input_set_params - set input parameters
  */
@@ -1620,6 +1635,7 @@ out:
 
 int goodix_ts_suspend(struct goodix_ts_core *core_data)
 {
+	atomic_set(&core_data->want_to_resume, false);
 	return goodix_ts_suspend_lock(core_data, true);
 }
 
@@ -1723,6 +1739,7 @@ out:
 
 int goodix_ts_resume(struct goodix_ts_core *core_data)
 {
+	atomic_set(&core_data->want_to_resume, true);
 	return goodix_ts_resume_lock(core_data, true);
 }
 
@@ -2129,6 +2146,9 @@ static int gtp_set_cur_value(int gtp_mode, int gtp_value)
 	}
 
 	if (gtp_mode == Touch_Fod_Enable && goodix_core_data) {
+		if (goodix_core_data->fod_status == gtp_value) {
+			return 0;
+		}
 		mutex_lock(&goodix_core_data->work_stat);
 		ts_info("locked work_stat mutex");
 		suspended = atomic_read(&goodix_core_data->suspended);
@@ -2145,8 +2165,10 @@ static int gtp_set_cur_value(int gtp_mode, int gtp_value)
 			goodix_core_data->gesture_enabled = goodix_core_data->double_wakeup |
 				goodix_core_data->fod_enabled | goodix_core_data->aod_status;
 		}
-		if (suspended) {
+		if (!atomic_read(&goodix_core_data->want_to_resume) && suspended) {
 			goodix_ts_suspend_lock(goodix_core_data, false);
+		} else if (suspended) {
+			ts_info("dev want to resume, don't suspend");
 		}
 		ts_info("unlocking work_stat mutex");
 		mutex_unlock(&goodix_core_data->work_stat);
@@ -2435,6 +2457,8 @@ static int goodix_ts_probe(struct platform_device *pdev)
 	core_data->tp_already_suspend = false;
 	init_completion(&core_data->pm_resume_completion);
 
+	atomic_set(&core_data->want_to_resume, false);
+
 	/*create sysfs files*/
 	goodix_ts_sysfs_init(core_data);
 
@@ -2521,6 +2545,12 @@ static int goodix_ts_probe(struct platform_device *pdev)
 	if (sysfs_create_file(&core_data->gtp_touch_dev->kobj,
 				  &dev_attr_fod_test.attr)) {
 		ts_err("Failed to create fod_test sysfs group!");
+		goto out;
+	}
+
+	if (sysfs_create_file(&core_data->gtp_touch_dev->kobj,
+				  &dev_attr_fp_state.attr)) {
+		ts_err("Failed to create fp_state sysfs file!");
 		goto out;
 	}
 
