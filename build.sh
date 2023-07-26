@@ -38,7 +38,7 @@ export ARCH=arm64
 export SUBARCH=arm64
 export KBUILD_COMPILER_STRING="$(${PWD}/clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')"
 IMAGE_GZ=$PWD/out/arch/arm64/boot/Image.gz
-DTB=$PWD/out/arch/arm64/boot/dts/qcom/sdmmagpie.dtb
+DTB=$PWD/out/arch/arm64/boot/dts/qcom/xiaomi-sdmmagpie.dtb
 DTBO_IMG=$PWD/out/arch/arm64/boot/dtbo.img
 # Speed up build process
 MAKE="./makeparallel"
