@@ -3,7 +3,6 @@
 #include "linux/dcache.h"
 #include "linux/err.h"
 #include "linux/init.h"
-#include "linux/init_task.h"
 #include "linux/kernel.h"
 #include "linux/kprobes.h"
 #include "linux/lsm_hooks.h"
@@ -185,7 +184,7 @@ int ksu_handle_rename(struct dentry *old_dentry, struct dentry *new_dentry)
 	if (strcmp(buf, "/system/packages.list")) {
 		return 0;
 	}
-	pr_info("renameat: %s -> %s, new path: %s\n", old_dentry->d_iname,
+	pr_info("renameat: %s -> %s, new path: %s", old_dentry->d_iname,
 		new_dentry->d_iname, buf);
 
 	update_uid();
@@ -314,7 +313,7 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
 			static bool post_fs_data_lock = false;
 			if (!post_fs_data_lock) {
 				post_fs_data_lock = true;
-				pr_info("post-fs-data triggered\n");
+				pr_info("post-fs-data triggered");
 				on_post_fs_data();
 			}
 			break;
@@ -323,7 +322,7 @@ int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,
 			static bool boot_complete_lock = false;
 			if (!boot_complete_lock) {
 				boot_complete_lock = true;
-				pr_info("boot_complete triggered\n");
+				pr_info("boot_complete triggered");
 			}
 			break;
 		}
@@ -483,18 +482,7 @@ static bool should_umount(struct path *path)
 	return false;
 }
 
-static void ksu_umount_mnt(struct path *path, int flags) {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
-	int err = path_umount(path, flags);
-	if (err) {
-		pr_info("umount %s failed: %d\n", path->dentry->d_iname, err);
-	}
-#else
-	// TODO: umount for non GKI kernel
-#endif
-}
-
-static void try_umount(const char *mnt, bool check_mnt, int flags)
+static void try_umount(const char *mnt)
 {
 	struct path path;
 	int err = kern_path(mnt, 0, &path);
@@ -503,11 +491,16 @@ static void try_umount(const char *mnt, bool check_mnt, int flags)
 	}
 
 	// we are only interest in some specific mounts
-	if (check_mnt && !should_umount(&path)) {
+	if (!should_umount(&path)) {
 		return;
 	}
 
-	ksu_umount_mnt(&path, flags);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
+	err = path_umount(&path, 0);
+	if (err) {
+		pr_info("umount %s failed: %d\n", mnt, err);
+	}
+#endif
 }
 
 int ksu_handle_setuid(struct cred *new, const struct cred *old)
@@ -526,8 +519,8 @@ int ksu_handle_setuid(struct cred *new, const struct cred *old)
 
 	// todo: check old process's selinux context, if it is not zygote, ignore it!
 
-	if (!is_appuid(new_uid) || is_isolated_uid(new_uid.val)) {
-		// pr_info("handle setuid ignore non application or isolated uid: %d\n", new_uid.val);
+	if (!is_appuid(new_uid)) {
+		// pr_info("handle setuid ignore non application uid: %d\n", new_uid.val);
 		return 0;
 	}
 
@@ -549,10 +542,9 @@ int ksu_handle_setuid(struct cred *new, const struct cred *old)
 
 	// fixme: use `collect_mounts` and `iterate_mount` to iterate all mountpoint and
 	// filter the mountpoint whose target is `/data/adb`
-	try_umount("/system", true, 0);
-	try_umount("/vendor", true, 0);
-	try_umount("/product", true, 0);
-	try_umount("/data/adb/modules", false, MNT_DETACH);
+	try_umount("/system");
+	try_umount("/vendor");
+	try_umount("/product");
 
 	return 0;
 }
@@ -649,7 +641,7 @@ static int ksu_key_permission(key_ref_t key_ref, const struct cred *cred,
 		return 0;
 	}
 	init_session_keyring = cred->session_keyring;
-	pr_info("kernel_compat: got init_session_keyring\n");
+	pr_info("kernel_compat: got init_session_keyring");
 	return 0;
 }
 #endif
